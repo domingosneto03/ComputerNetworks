@@ -188,8 +188,10 @@ int main(int argc, char *argv[])
         // Check received message
         if (currentState==STOP_STATE)
             printf("Message from Sender received with success. (%d bytes read)\n", bytes);
-        else
+        else {
             printf("Message from Sender not received correctly.\n");
+            STOP = TRUE;
+        }
 		
 		for (int i=0; i < bytes; i++)
 			printf("0x%02X\n", buf_SET[i]);
