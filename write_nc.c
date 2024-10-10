@@ -113,24 +113,22 @@ int main(int argc, char *argv[])
     buf_SET[5] = '\n';
 
     int bytes = write(fd, buf_SET, 5);
-    printf("Mensagem enviada. (%d bytes written)\n", bytes);
+    printf("Meessage sent. (%d bytes written)\n", bytes);
 
     // Wait until all bytes have been written to the serial port
     sleep(1);
 
-    // Recebe e mostra o que o reader retornou
     unsigned char buf_UA[BUF_SIZE + 1] = {0};
 
     while (STOP == FALSE) {
         int bytes_UA = read(fd, buf_UA, BUF_SIZE);
         buf_UA[bytes_UA] = '\0';
 
-        //Confere sucesso da FLAG
         if (buf_UA[0] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3] == A_R^C_R && buf_UA[4] == FLAG) {
-            printf("Mensagem do recetor recebida com sucesso. (%d bytes read)\n", bytes_UA);
+            printf("Message from Receiver received with success. (%d bytes read)\n", bytes_UA);
         }  
         else
-            printf("Mensagem do recetor não recebida corretamente\n");
+            printf("Message from Receiver not received correctly.\n");
 
         for(int i=0; i<bytes_UA; i++)
             printf("0x%02X\n", buf_UA[i]);
