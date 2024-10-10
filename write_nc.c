@@ -20,9 +20,11 @@
 #define TRUE 1
 
 #define FLAG 0x7e
-#define A_S 0x03
 
+#define A_S 0x03
 #define A_R 0x01
+
+#define C_S 0x03
 #define C_R 0x07
 
 #define BUF_SIZE 256
@@ -96,21 +98,21 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
+    unsigned char buf_SET[BUF_SIZE] = {0};
 
     //Mensagem a enviar
-    buf[0] = FLAG;
-    buf[1] = A_S;
-    buf[2] = A_S;
-    buf[3] = A_S ^ A_S;
-    buf[4] = FLAG; 
+    buf_SET[0] = FLAG;
+    buf_SET[1] = A_S;
+    buf_SET[2] = C_S;
+    buf_SET[3] = A_S^C_S;
+    buf_SET[4] = FLAG; 
 
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
+    buf_SET[5] = '\n';
 
-    int bytes = write(fd, buf, 5);
+    int bytes = write(fd, buf_SET, 5);
     printf("Mensagem enviada. (%d bytes written)\n", bytes);
 
     // Wait until all bytes have been written to the serial port
@@ -124,14 +126,14 @@ int main(int argc, char *argv[])
         buf_UA[bytes_UA] = '\0';
 
         //Confere sucesso da FLAG
-        if (buf_UA[0] == FLAG && buf_UA[4] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3]==A_R^C_R) {
+        if (buf_UA[0] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3] == A_R^C_R && buf_UA[4] == FLAG) {
             printf("Mensagem do recetor recebida com sucesso. (%d bytes read)\n", bytes_UA);
         }  
         else
             printf("Mensagem do recetor não recebida corretamente\n");
 
         for(int i=0; i<bytes_UA; i++)
-            printf("0x%02X\n", buf[i]);
+            printf("0x%02X\n", buf_UA[i]);
         if (buf_UA[bytes_UA] == '\0') {
             STOP = TRUE;
         }

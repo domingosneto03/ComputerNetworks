@@ -19,13 +19,15 @@
 #define FALSE 0
 #define TRUE 1
 
-#define FLAG 0x7E
+#define FLAG 0x7e
+
+#define A_S 0x03
 #define A_R 0x01
+
+#define C_S 0x03
 #define C_R 0x07
 
 #define BUF_SIZE 256  
-
-#define A_S 0x03
 
 volatile int STOP = FALSE;
 
@@ -95,22 +97,22 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Loop for input
-    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+    unsigned char buf_SET[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
-        int bytes = read(fd, buf, 5);
-        buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
+        int bytes = read(fd, buf_SET, 5);
+        buf_SET[bytes] = '\0'; // Set end of string to '\0', so we can printf
 
         //Confere sucesso da FLAG e da mensagem
-        if (buf[0] == FLAG && buf[4] == FLAG && buf[1] == A_S && buf[2] == A_S && buf[3]==A_S^A_S)
+        if (buf_SET[0] == FLAG && buf_SET[1] == A_S && buf_SET[2] == C_S && buf_SET[3]==A_S^C_S && buf_SET[4] == FLAG)
             printf("Mensagem do emissor recebida com sucesso. (%d bytes read)\n", bytes);
         else
             printf("Mensagem do emissor não recebida corretamente\n");
 		
 		for (int i=0; i < bytes; i++)
-			printf("0x%02X\n", buf[i]);
+			printf("0x%02X\n", buf_SET[i]);
 			
         // Create string to send
         unsigned char buf_UA[BUF_SIZE] = {0};
@@ -124,7 +126,7 @@ int main(int argc, char *argv[])
 
         int bytes_UA = write(fd, buf_UA, 5);
         printf("Mensagem enviada. (%d bytes written)\n", bytes_UA);
-        if (buf[bytes] == '\0')
+        if (buf_SET[bytes] == '\0')
             STOP = TRUE;
     }
 
