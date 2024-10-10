@@ -1,4 +1,4 @@
-// Write to serial port in non-canonical mode
+// Read from serial port in non-canonical mode
 //
 // Modified by: Eduardo Nuno Almeida [enalmeida@fe.up.pt]
 
@@ -19,13 +19,13 @@
 #define FALSE 0
 #define TRUE 1
 
-#define FLAG 0x7e
-#define A_S 0x03
-
+#define FLAG 0x7E
 #define A_R 0x01
 #define C_R 0x07
 
-#define BUF_SIZE 256
+#define BUF_SIZE 256  
+
+#define A_S 0x03
 
 volatile int STOP = FALSE;
 
@@ -44,10 +44,9 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
-    // Open serial port device for reading and writing, and not as controlling tty
+    // Open serial port device for reading and writing and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
     int fd = open(serialPortName, O_RDWR | O_NOCTTY);
-
     if (fd < 0)
     {
         perror(serialPortName);
@@ -95,47 +94,42 @@ int main(int argc, char *argv[])
 
     printf("New termios structure set\n");
 
-    // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
+    // Loop for input
+    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 
-    //Mensagem a enviar
-    buf[0] = FLAG;
-    buf[1] = A_S;
-    buf[2] = A_S;
-    buf[3] = A_S ^ A_S;
-    buf[4] = FLAG; 
+    while (STOP == FALSE)
+    {
+        // Returns after 5 chars have been input
+        int bytes = read(fd, buf, 5);
+        buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
 
-    // In non-canonical mode, '\n' does not end the writing.
-    // Test this condition by placing a '\n' in the middle of the buffer.
-    // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
-
-    int bytes = write(fd, buf, 5);
-    printf("Mensagem enviada. (%d bytes written)\n", bytes);
-
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
-
-    // Recebe e mostra o que o reader retornou
-    unsigned char buf_UA[BUF_SIZE + 1] = {0};
-
-    while (STOP == FALSE) {
-        int bytes_UA = read(fd, buf_UA, BUF_SIZE);
-        buf_UA[bytes_UA] = '\0';
-
-        //Confere sucesso da FLAG
-        if (buf_UA[0] == FLAG && buf_UA[4] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3]==A_R^C_R) {
-            printf("Mensagem do recetor recebida com sucesso. (%d bytes read)\n", bytes_UA);
-        }  
+        //Confere sucesso da FLAG e da mensagem
+        if (buf[0] == FLAG && buf[4] == FLAG && buf[1] == A_S && buf[2] == A_S && buf[3]==A_S^A_S)
+            printf("Mensagem do emissor recebida com sucesso. (%d bytes read)\n", bytes);
         else
-            printf("Mensagem do recetor não recebida corretamente\n");
+            printf("Mensagem do emissor não recebida corretamente\n");
+		
+		for (int i=0; i < bytes; i++)
+			printf("0x%02X\n", buf[i]);
+			
+        // Create string to send
+        unsigned char buf_UA[BUF_SIZE] = {0};
 
-        for(int i=0; i<bytes_UA; i++)
-            printf("0x%02X\n", buf[i]);
-        if (buf_UA[bytes_UA] == '\0') {
+        //Mensagem a enviar
+        buf_UA[0] = FLAG;
+        buf_UA[1] = A_R;
+        buf_UA[2] = C_R;
+        buf_UA[3] = A_R ^ C_R;
+        buf_UA[4] = FLAG; 
+
+        int bytes_UA = write(fd, buf_UA, 5);
+        printf("Mensagem enviada. (%d bytes written)\n", bytes_UA);
+        if (buf[bytes] == '\0')
             STOP = TRUE;
-        }
     }
+
+    // The while() cycle should be changed in order to respect the specifications
+    // of the protocol indicated in the Lab guide
 
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
