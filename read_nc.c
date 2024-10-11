@@ -29,85 +29,16 @@
 
 #define BUF_SIZE 256  
 
-volatile int STOP = FALSE;
-
 typedef enum {
     START,
     FLAG_RCV,
     A_RCV,
     C_RCV,
     BCC_OK,
-    STOP_STATE
+    STOP
 } State;
 
-State currentState = START;
 
-// Function to handle state transitions based on the received byte
-void stateMachine(unsigned char byte) {
-    switch (currentState) {
-        case START:
-            if (byte == FLAG) {
-                currentState = FLAG_RCV;
-                printf("State changed to FLAG_RCV\n");
-            }
-            break;
-
-        case FLAG_RCV:
-            if (byte == FLAG) {
-                printf("FLAG received again, staying in FLAG_RCV\n");
-            } else if (byte == A_S) {
-                currentState = A_RCV;
-                printf("State changed to A_RCV\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case A_RCV:
-            if (byte == FLAG) {
-                currentState = FLAG_RCV;
-                printf("FLAG received, back to FLAG_RCV\n");
-            } else if (byte == C_S) {
-                currentState = C_RCV;
-                printf("State changed to C_RCV\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case C_RCV:
-            if (byte == FLAG) {
-                currentState = FLAG_RCV;
-                printf("FLAG received, back to FLAG_RCV\n");
-            } else if (byte == A_S^C_S) {
-                currentState = BCC_OK;
-                printf("State changed to BCC_OK\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case BCC_OK:
-            if (byte == FLAG) {
-                currentState = STOP_STATE;
-                printf("State changed to STOP, message received successfully\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case STOP_STATE:
-            break;
-
-        default:
-            currentState = START;
-            break;
-    }
-}
 
 int main(int argc, char *argv[])
 {
@@ -177,24 +108,86 @@ int main(int argc, char *argv[])
     // Loop for input
     unsigned char buf_SET[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
 
-    while (STOP == FALSE)
+
+    State currentState = START;
+
+    while (currentState != STOP)
     {
-        int bytes = read(fd, buf_SET, 5);
-        if (bytes > 0) {
-            for(int i=0; i<bytes; i++)
-                stateMachine(buf_SET[i]);
+        int bytes = read(fd, buf_SET, 1);
+
+	    printf("0x%02X\n", buf_SET[0]);
+
+        if (!bytes) continue;
+
+        buf_SET[bytes] = '\0';
+
+        switch (currentState) {
+        case START:
+            if (buf_SET[0] == FLAG) {
+                currentState = FLAG_RCV;
+                printf("State changed to FLAG_RCV\n");
+            }
+            break;
+
+        case FLAG_RCV:
+            if (buf_SET[0] == FLAG) {
+                printf("FLAG received again, staying in FLAG_RCV\n");
+                continue;
+            } else if (buf_SET[0] == A_S) {
+                currentState = A_RCV;
+                printf("State changed to A_RCV\n");
+            } else {
+                currentState = START;
+                printf("Unexpected buf_SET[0], returning to START\n");
+            }
+            break;
+
+        case A_RCV:
+            if (buf_SET[0] == FLAG) {
+                currentState = FLAG_RCV;
+                printf("FLAG received, back to FLAG_RCV\n");
+            } else if (buf_SET[0] == C_S) {
+                currentState = C_RCV;
+                printf("State changed to C_RCV\n");
+            } else {
+                currentState = START;
+                printf("Unexpected buf_SET[0], returning to START\n");
+            }
+            break;
+
+        case C_RCV:
+            if (buf_SET[0] == FLAG) {
+                currentState = FLAG_RCV;
+                printf("FLAG received, back to FLAG_RCV\n");
+            } else if (buf_SET[0] == A_S^C_S) {
+                currentState = BCC_OK;
+                printf("State changed to BCC_OK\n");
+            } else {
+                currentState = START;
+                printf("Unexpected buf_SET[0], returning to START\n");
+            }
+            break;
+
+        case BCC_OK:
+            if (buf_SET[0] == FLAG) {
+                currentState = STOP;
+                printf("State changed to STOP, message received successfully\n");
+            } else {
+                currentState = START;
+                printf("Unexpected buf_SET[0], returning to START\n");
+            }
+            break;
         }
+    }
 
         // Check received message
-        if (currentState==STOP_STATE)
-            printf("Message from Sender received with success. (%d bytes read)\n", bytes);
+        if (currentState==STOP)
+            printf("Message from Sender received with success.\n");
         else {
             printf("Message from Sender not received correctly.\n");
-            STOP = TRUE;
         }
 		
-		for (int i=0; i < bytes; i++)
-			printf("0x%02X\n", buf_SET[i]);
+		
 			
         // Create string to send
         unsigned char buf_UA[BUF_SIZE] = {0};
@@ -208,9 +201,7 @@ int main(int argc, char *argv[])
 
         int bytes_UA = write(fd, buf_UA, 5);
         printf("Message sent. (%d bytes written)\n", bytes_UA);
-        if (buf_SET[bytes] == '\0')
-            STOP = TRUE;
-    }
+
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide
