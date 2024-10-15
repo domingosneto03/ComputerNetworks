@@ -29,26 +29,16 @@
 #define C_R 0x07
 
 #define BUF_SIZE 256
+#define MAX_RETRANSMISSIONS 3
 
 volatile int STOP = FALSE;
-
 volatile int alarmEnabled = FALSE;
 volatile int alarmCount = 0;
-const int maxRetries = 3;
 
-// Alarm handler function
 void alarmHandler(int signal) {
     alarmEnabled = FALSE;
     alarmCount++;
-    printf("Alarm #%d triggered.\n", alarmCount);
-
-    if (alarmCount < maxRetries) {
-        alarm(3);
-        alarmEnabled = TRUE;
-        
-    } else {
-        printf("Maximum number of retries reached. Stopping retransmissions.\n");
-    }
+    printf("Alarm #%d\n", alarmCount);
 }
 
 int main(int argc, char *argv[])
@@ -95,8 +85,8 @@ int main(int argc, char *argv[])
 
     // Set input mode (non-canonical, no echo,...)
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 0; // Inter-character timer unused
-    newtio.c_cc[VMIN] = 5;  // Blocking read until 5 chars received
+    newtio.c_cc[VTIME] = 30; // Inter-character timer unused
+    newtio.c_cc[VMIN] = 0;  // Blocking read until X chars received
 
     // VTIME e VMIN should be changed in order to protect with a
     // timeout the reception of the following character(s)
@@ -117,49 +107,47 @@ int main(int argc, char *argv[])
 
     printf("New termios structure set\n");
 
+    (void)signal(SIGALRM, alarmHandler);
+
     // Create string to send
     unsigned char buf_SET[BUF_SIZE] = {0};
 
-    //Mensagem a enviar
+    //Message to send
     buf_SET[0] = FLAG;
     buf_SET[1] = A_S;
     buf_SET[2] = C_S;
     buf_SET[3] = A_S^C_S;
     buf_SET[4] = FLAG; 
 
-    signal(SIGALRM, alarmHandler);
-
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
     buf_SET[5] = '\n';
 
-    int bytes = write(fd, buf_SET, 5);
-    printf("Meessage sent. (%d bytes written)\n", bytes);
-
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
-
-    alarm(3);
-    alarmEnabled = TRUE;
-
     unsigned char buf_UA[BUF_SIZE + 1] = {0};
 
-    while (STOP == FALSE) {
-        int bytes_UA = read(fd, buf_UA, BUF_SIZE);
+    while (alarmCount < MAX_RETRANSMISSIONS && STOP == FALSE) {
+
+        int bytes = write(fd, buf_SET, 5);
+        printf("SET frame sent.\n");
+
+        alarmEnabled = TRUE;
+        alarm(3);
+
+        int bytes_UA = read(fd, buf_UA, 5);
         buf_UA[bytes_UA] = '\0';
 
-        if (buf_UA[0] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3] == A_R^C_R && buf_UA[4] == FLAG) {
-            printf("Message from Receiver received with success. (%d bytes read)\n", bytes_UA);
+        // Check if UA frame was correctly received
+        if (buf_UA[0] == FLAG && buf_UA[1] == A_R && buf_UA[2] == C_R && buf_UA[3] == A_R ^ C_R && buf_UA[4] == FLAG) {
+            printf("UA frame received successfully.\n");
             alarm(0);
-        }  
-        else
-            printf("Message from Receiver not received correctly.\n");
-
-        for(int i=0; i<bytes_UA; i++)
-            printf("0x%02X\n", buf_UA[i]);
-        if (buf_UA[bytes_UA] == '\0') {
             STOP = TRUE;
+        } else {
+            printf("UA frame not received correctly.\n");
+            if (alarmCount >= MAX_RETRANSMISSIONS) {
+                printf("Maximum number of retransmissions reached. Aborting.\n");
+                STOP = TRUE;
+            }
         }
     }
 
