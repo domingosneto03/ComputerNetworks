@@ -27,7 +27,9 @@
 #define C_S 0x03
 #define C_R 0x07
 
-#define BUF_SIZE 256  
+#define BUF_SIZE 256
+#define MAX_RETRIES 3
+volatile int STOP = FALSE;  
 
 typedef enum {
     START,
@@ -35,7 +37,7 @@ typedef enum {
     A_RCV,
     C_RCV,
     BCC_OK,
-    STOP
+    STOP_STATE
 } State;
 
 
@@ -107,115 +109,106 @@ int main(int argc, char *argv[])
 
     // Loop for input
     unsigned char buf_SET[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+    int volatile retries = 0;
 
+    while (STOP == FALSE && retries < MAX_RETRIES) {
+        State currentState = START;
+        volatile int count = 0;
 
-    State currentState = START;
-    volatile int count = 0;
+        while (count < 5) {
+            int bytes = read(fd, buf_SET, 1);
+            count++;
 
-    while (count < 5)
-    {
-        int bytes = read(fd, buf_SET, 1);
-        count++;
+            printf("0x%02X\n", buf_SET[0]);
 
-	    printf("0x%02X\n", buf_SET[0]);
+            switch (currentState) {
+            case START:
+                if (buf_SET[0] == FLAG) {
+                    currentState = FLAG_RCV;
+                    printf("State changed to FLAG_RCV\n");
+                } else {
+                    printf("Unexpected byte, staying in START\n");
+                }
+                break;
 
-        switch (currentState) {
-        case START:
-            if (buf_SET[0] == FLAG) {
-                currentState = FLAG_RCV;
-                printf("State changed to FLAG_RCV\n");
-            } else {
-                printf("Unexpected byte, staying in START\n");
+            case FLAG_RCV:
+                if (buf_SET[0] == FLAG) {
+                    printf("FLAG received again, staying in FLAG_RCV\n");
+                    continue;
+                } else if (buf_SET[0] == A_S) {
+                    currentState = A_RCV;
+                    printf("State changed to A_RCV\n");
+                } else {
+                    currentState = START;
+                    printf("Unexpected byte, returning to START\n");
+                }
+                break;
+
+            case A_RCV:
+                if (buf_SET[0] == FLAG) {
+                    currentState = FLAG_RCV;
+                    printf("FLAG received, returning to FLAG_RCV\n");
+                } else if (buf_SET[0] == C_S) {
+                    currentState = C_RCV;
+                    printf("State changed to C_RCV\n");
+                } else {
+                    currentState = START;
+                    printf("Unexpected byte, returning to START\n");
+                }
+                break;
+
+            case C_RCV:
+                if (buf_SET[0] == FLAG) {
+                    currentState = FLAG_RCV;
+                    printf("FLAG received, returning to FLAG_RCV\n");
+                } else if (buf_SET[0] == (A_S^C_S)) {
+                    currentState = BCC_OK;
+                    printf("State changed to BCC_OK\n");
+                } else {
+                    currentState = START;
+                    printf("Unexpected byte, returning to START\n");
+                }
+                break;
+
+            case BCC_OK:
+                if (buf_SET[0] == FLAG) {
+                    currentState = STOP_STATE;
+                    printf("State changed to STOP\n");
+                } else {
+                    currentState = START;
+                    printf("Unexpected byte, returning to START\n");
+                }
+                break;
             }
-            break;
-
-        case FLAG_RCV:
-            if (buf_SET[0] == FLAG) {
-                printf("FLAG received again, staying in FLAG_RCV\n");
-                continue;
-            } else if (buf_SET[0] == A_S) {
-                currentState = A_RCV;
-                printf("State changed to A_RCV\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case A_RCV:
-            if (buf_SET[0] == FLAG) {
-                currentState = FLAG_RCV;
-                printf("FLAG received, returning to FLAG_RCV\n");
-            } else if (buf_SET[0] == C_S) {
-                currentState = C_RCV;
-                printf("State changed to C_RCV\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case C_RCV:
-            if (buf_SET[0] == FLAG) {
-                currentState = FLAG_RCV;
-                printf("FLAG received, returning to FLAG_RCV\n");
-            } else if (buf_SET[0] == (A_S^C_S)) {
-                currentState = BCC_OK;
-                printf("State changed to BCC_OK\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
-
-        case BCC_OK:
-            if (buf_SET[0] == FLAG) {
-                currentState = STOP;
-                printf("State changed to STOP\n");
-            } else {
-                currentState = START;
-                printf("Unexpected byte, returning to START\n");
-            }
-            break;
         }
-    }
 
         // Check received message
-        if (currentState==STOP) {
-            printf("Message from Sender received with success.\n");
-            /*
+        if (currentState==STOP_STATE) {
+            printf("SET frame received successfully.\n");
+
+            // Create string to send
             unsigned char buf_UA[BUF_SIZE] = {0};
+            int send_UA = FALSE; // for testing
 
-            //Message to send
-            buf_UA[0] = FLAG;
-            buf_UA[1] = A_R;
-            buf_UA[2] = C_R;
-            buf_UA[3] = A_R ^ C_R;
-            buf_UA[4] = FLAG; 
+            if(send_UA) {
 
-            int bytes_UA = write(fd, buf_UA, 5);
-            printf("Message sent. (%d bytes written)\n", bytes_UA);
-            */  
+                //Mensagem to send
+                buf_UA[0] = FLAG;
+                buf_UA[1] = A_R;
+                buf_UA[2] = C_R;
+                buf_UA[3] = A_R ^ C_R;
+                buf_UA[4] = FLAG;
+
+                int bytes_UA = write(fd, buf_UA, 5);
+                printf("UA frame sent.\n");
+                STOP = TRUE;
+            } else retries++;  
         }
         else {
-            printf("Message from Sender not received correctly.\n");
+            printf("SET frame not received correctly.\n");
+            retries++;
         }
-			
-        // Create string to send
-        unsigned char buf_UA[BUF_SIZE] = {0};
-        int send_UA = FALSE;
-
-        //Mensagem to send
-        buf_UA[0] = FLAG;
-        buf_UA[1] = A_R;
-        buf_UA[2] = C_R;
-        buf_UA[3] = A_R ^ C_R;
-        buf_UA[4] = FLAG; 
-
-        if(send_UA) {
-            int bytes_UA = write(fd, buf_UA, 5);
-            printf("Message sent. (%d bytes written)\n", bytes_UA);
-        }
+    }
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide
