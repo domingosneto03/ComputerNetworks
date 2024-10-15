@@ -110,22 +110,22 @@ int main(int argc, char *argv[])
 
 
     State currentState = START;
+    volatile int count = 0;
 
-    while (currentState != STOP)
+    while (count < 5)
     {
         int bytes = read(fd, buf_SET, 1);
+        count++;
 
 	    printf("0x%02X\n", buf_SET[0]);
-
-        if (!bytes) continue;
-
-        buf_SET[bytes] = '\0';
 
         switch (currentState) {
         case START:
             if (buf_SET[0] == FLAG) {
                 currentState = FLAG_RCV;
                 printf("State changed to FLAG_RCV\n");
+            } else {
+                printf("Unexpected byte, staying in START\n");
             }
             break;
 
@@ -138,59 +138,72 @@ int main(int argc, char *argv[])
                 printf("State changed to A_RCV\n");
             } else {
                 currentState = START;
-                printf("Unexpected buf_SET[0], returning to START\n");
+                printf("Unexpected byte, returning to START\n");
             }
             break;
 
         case A_RCV:
             if (buf_SET[0] == FLAG) {
                 currentState = FLAG_RCV;
-                printf("FLAG received, back to FLAG_RCV\n");
+                printf("FLAG received, returning to FLAG_RCV\n");
             } else if (buf_SET[0] == C_S) {
                 currentState = C_RCV;
                 printf("State changed to C_RCV\n");
             } else {
                 currentState = START;
-                printf("Unexpected buf_SET[0], returning to START\n");
+                printf("Unexpected byte, returning to START\n");
             }
             break;
 
         case C_RCV:
             if (buf_SET[0] == FLAG) {
                 currentState = FLAG_RCV;
-                printf("FLAG received, back to FLAG_RCV\n");
-            } else if (buf_SET[0] == A_S^C_S) {
+                printf("FLAG received, returning to FLAG_RCV\n");
+            } else if (buf_SET[0] == (A_S^C_S)) {
                 currentState = BCC_OK;
                 printf("State changed to BCC_OK\n");
             } else {
                 currentState = START;
-                printf("Unexpected buf_SET[0], returning to START\n");
+                printf("Unexpected byte, returning to START\n");
             }
             break;
 
         case BCC_OK:
             if (buf_SET[0] == FLAG) {
                 currentState = STOP;
-                printf("State changed to STOP, message received successfully\n");
+                printf("State changed to STOP\n");
             } else {
                 currentState = START;
-                printf("Unexpected buf_SET[0], returning to START\n");
+                printf("Unexpected byte, returning to START\n");
             }
             break;
         }
     }
 
         // Check received message
-        if (currentState==STOP)
+        if (currentState==STOP) {
             printf("Message from Sender received with success.\n");
+            /*
+            unsigned char buf_UA[BUF_SIZE] = {0};
+
+            //Message to send
+            buf_UA[0] = FLAG;
+            buf_UA[1] = A_R;
+            buf_UA[2] = C_R;
+            buf_UA[3] = A_R ^ C_R;
+            buf_UA[4] = FLAG; 
+
+            int bytes_UA = write(fd, buf_UA, 5);
+            printf("Message sent. (%d bytes written)\n", bytes_UA);
+            */  
+        }
         else {
             printf("Message from Sender not received correctly.\n");
         }
-		
-		
 			
         // Create string to send
         unsigned char buf_UA[BUF_SIZE] = {0};
+        int send_UA = FALSE;
 
         //Mensagem to send
         buf_UA[0] = FLAG;
@@ -199,9 +212,10 @@ int main(int argc, char *argv[])
         buf_UA[3] = A_R ^ C_R;
         buf_UA[4] = FLAG; 
 
-        int bytes_UA = write(fd, buf_UA, 5);
-        printf("Message sent. (%d bytes written)\n", bytes_UA);
-
+        if(send_UA) {
+            int bytes_UA = write(fd, buf_UA, 5);
+            printf("Message sent. (%d bytes written)\n", bytes_UA);
+        }
 
     // The while() cycle should be changed in order to respect the specifications
     // of the protocol indicated in the Lab guide

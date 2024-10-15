@@ -32,25 +32,6 @@
 
 volatile int STOP = FALSE;
 
-volatile int alarmEnabled = FALSE;
-volatile int alarmCount = 0;
-const int maxRetries = 3;
-
-// Alarm handler function
-void alarmHandler(int signal) {
-    alarmEnabled = FALSE;
-    alarmCount++;
-    printf("Alarm #%d triggered.\n", alarmCount);
-
-    if (alarmCount < maxRetries) {
-        alarm(3);
-        alarmEnabled = TRUE;
-        
-    } else {
-        printf("Maximum number of retries reached. Stopping retransmissions.\n");
-    }
-}
-
 int main(int argc, char *argv[])
 {
     // Program usage: Uses either COM1 or COM2
@@ -127,8 +108,6 @@ int main(int argc, char *argv[])
     buf_SET[3] = A_S^C_S;
     buf_SET[4] = FLAG; 
 
-    signal(SIGALRM, alarmHandler);
-
     // In non-canonical mode, '\n' does not end the writing.
     // Test this condition by placing a '\n' in the middle of the buffer.
     // The whole buffer must be sent even with the '\n'.
@@ -136,12 +115,6 @@ int main(int argc, char *argv[])
 
     int bytes = write(fd, buf_SET, 5);
     printf("Meessage sent. (%d bytes written)\n", bytes);
-
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
-
-    alarm(3);
-    alarmEnabled = TRUE;
 
     unsigned char buf_UA[BUF_SIZE + 1] = {0};
 
