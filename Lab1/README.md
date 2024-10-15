@@ -1,5 +1,3 @@
-# Computer Networks
-
 INSTRUCTIONS FOR SERIAL PORT PROTOCOL
 =====================================
 
