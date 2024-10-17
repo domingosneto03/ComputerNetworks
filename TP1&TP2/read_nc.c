@@ -188,7 +188,7 @@ int main(int argc, char *argv[])
 
             // Create string to send
             unsigned char buf_UA[BUF_SIZE] = {0};
-            int send_UA = FALSE; // for testing
+            int send_UA = TRUE; // for testing
 
             if(send_UA) {
 
