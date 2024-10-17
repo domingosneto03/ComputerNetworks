@@ -37,8 +37,6 @@ typedef enum {
 } State;
 
 
-int fd;
-
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -46,7 +44,7 @@ int llopen(LinkLayer connectionParameters) {
 
     State state = START;
 
-    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
+    int fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
     if (fd < 0) {
         perror(connectionParameters.serialPort);
