@@ -9,6 +9,23 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <termios.h>
+#include <unistd.h>
+
+#define BAUDRATE B38400
+#define _POSIX_SOURCE 1 // POSIX compliant source
+#define FALSE 0
+#define TRUE 1
+#define FLAG 0x7e
+#define A_TX 0x03
+#define A_RX 0x01
+#define C_SET 0x03
+#define C_UA 0x07
+#define C_RR0 0xAA
+#define C_RR1 0xAB
+#define C_REJ0 0x54
+#define C_REJ1 0x55
+#define C_DISC 0x0B
+#define BUF_SIZE 256
 
 typedef enum {
     START,
@@ -20,127 +37,7 @@ typedef enum {
 } State;
 
 
-#define BAUDRATE B38400
-#define _POSIX_SOURCE 1 // POSIX compliant source
-#define FALSE 0
-#define TRUE 1
-#define FLAG 0x7e
-#define A_S 0x03
-#define A_R 0x01
-#define C_SET 0x03
-#define C_UA 0x07
-#define C_RR0 0xAA
-#define C_RR1 0xAB
-#define C_REJ0 0x54
-#define C_REJ1 0x55
-#define C_DISC 0x0B
-
 int fd;
-
-int stateMachineSender(State state, int fd) {
-
-    unsigned char byte;
-    
-    while(state != STOP_STATE){
-        if(read(fd, &byte, 1) > 0){
-            switch (state){
-            case START:
-                if(byte == FLAG) 
-                    state = FLAG_RCV;
-                break;
-
-            case FLAG_RCV:
-                if(byte == A_R) 
-                    state = A_RCV;
-                else if(byte != FLAG)
-                    state = START;
-                break;
-            
-            case A_RCV:
-                if(byte == C_UA) 
-                    state = C_RCV;
-                else if(byte == FLAG)
-                    state = FLAG;
-                else
-                    state = START;
-                break;
-
-            case C_RCV:
-                if(byte == (C_UA ^ A_R)) 
-                    state = BCC_OK;
-                else if(byte == FLAG)
-                    state = FLAG;
-                else
-                    state = START;
-                break;
-
-            case BCC_OK:
-                if(byte == FLAG) 
-                    state = STOP_STATE;
-                else
-                    state = START;
-                break;
-
-            default:
-                break;
-            }
-        }
-    }
-}
-
-
-int stateMachineReceiver(State state, int fd) {
-    
-    unsigned char byte;
-    
-    while(state != STOP_STATE){
-        if(read(fd, &byte, 1) > 0){
-            switch (state){
-            case START:
-                if(byte == FLAG) 
-                    state = FLAG_RCV;
-                break;
-
-            case FLAG_RCV:
-                if(byte == A_S) 
-                    state = A_RCV;
-                else if(byte != FLAG)
-                    state = START;
-                break;
-            
-            case A_RCV:
-                if(byte == C_SET) 
-                    state = C_RCV;
-                else if(byte == FLAG)
-                    state = FLAG;
-                else
-                    state = START;
-                break;
-
-            case C_RCV:
-                if(byte == (C_SET ^ A_S)) 
-                    state = BCC_OK;
-                else if(byte == FLAG)
-                    state = FLAG;
-                else
-                    state = START;
-                break;
-
-            case BCC_OK:
-                if(byte == FLAG) 
-                    state = STOP_STATE;
-                else
-                    state = START;
-                break;
-
-            default:
-                break;
-            }
-        }
-    }
-}
-
-
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -149,10 +46,10 @@ int llopen(LinkLayer connectionParameters) {
 
     State state = START;
 
-    fd = open(serialPortName, O_RDWR | O_NOCTTY);
+    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
     if (fd < 0) {
-        perror(serialPortName);
+        perror(connectionParameters.serialPort);
         exit(-1);
     }
 
@@ -171,7 +68,7 @@ int llopen(LinkLayer connectionParameters) {
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
     newtio.c_cc[VTIME] = 30;
-    newtio.c_cc[VMIN] = 5;
+    newtio.c_cc[VMIN] = 0;
 
     tcflush(fd, TCIOFLUSH);
 
@@ -180,27 +77,104 @@ int llopen(LinkLayer connectionParameters) {
         exit(-1);
     }
 
-    switch (connectionParameters.role) {
-    case LlTx:
-        while(connectionParameters.nRetransmissions > 0){
-            unsigned char frame[5] = {FLAG, A_S, C_SET, (A_S ^ C_SET), FLAG};
-            int bytes = write(fd, frame, 5);
-            stateMachineSender(&state, fd);
-            connectionParameters.nRetransmissions--;
-        }
-        
-        if (state != STOP_STATE) return -1;
-        break;
+    unsigned char buf_R[BUF_SIZE + 1] = {0};
 
-    case LlRx:
-        stateMachineReceiver(&state, fd);
-        unsigned char frame[5] = {FLAG, A_R, C_UA, (A_R ^ C_UA), FLAG};
-        int bytes = write(fd, frame, 5);
-        break;
-    
-    default:
-        return -1;
-        break;
+    switch (connectionParameters.role) {
+
+        // reads message from Receiver
+        case LlTx:
+            unsigned char buf_W1[5] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
+            write(fd, buf_W1, 5);
+            
+            while (state != STOP_STATE) {
+                int bytes_R = read(fd, buf_R, 1);
+                if(bytes_R > 0) {
+                    printf("0x%02X\n", buf_R[0]);
+                    switch (state) {
+                        case START:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            break;
+
+                        case FLAG_RCV:
+                            if (buf_R[0] == FLAG) continue;
+                            else if (buf_R[0] == A_RX) state = A_RCV; 
+                            else state = START;
+                            break;
+
+                        case A_RCV:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            else if (buf_R[0] == C_UA) state = C_RCV;
+                            else state = START;
+                            break;
+
+                        case C_RCV:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            else if (buf_R[0] == (A_RX^C_UA)) state = BCC_OK;
+                            else state = START;
+                            break;
+
+                        case BCC_OK:
+                            if (buf_R[0] == FLAG) state = STOP_STATE;
+                            else state = START;
+                            break;
+
+                        default:
+							break;
+                    }
+                }
+            }
+            
+            if(state != STOP_STATE) return -1;
+            break;
+
+        // reads message from Sender
+        case LlRx:
+            while(state != STOP_STATE){
+
+                int bytes_R = read(fd, buf_R, 1);
+                if(bytes_R > 0) {
+                    printf("0x%02X\n", buf_R[0]);
+                    switch (state) {
+                        case START:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            break;
+
+                        case FLAG_RCV:
+                            if (buf_R[0] == FLAG) continue;
+                            else if (buf_R[0] == A_TX) state = A_RCV; 
+                            else state = START;
+                            break;
+
+                        case A_RCV:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            else if (buf_R[0] == C_SET) state = C_RCV;
+                            else state = START;
+                            break;
+
+                        case C_RCV:
+                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            else if (buf_R[0] == (A_TX^C_SET)) state = BCC_OK;
+                            else state = START;
+                            break;
+
+                        case BCC_OK:
+                            if (buf_R[0] == FLAG) state = STOP_STATE;
+                            else state = START;
+                            break;
+
+                        default:
+							break;
+                    }
+                }
+            }
+            
+            unsigned char buf_W2[5] = {FLAG, A_RX, C_UA, A_RX ^ C_UA, FLAG};
+			write(fd, buf_W2, 5);
+            break;
+        
+        default:
+            return -1;
+            break;
     }
 
     return fd;
