@@ -16,7 +16,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     
     sprintf(ll.serialPort, "%s", serialPort);
     
-    ll.role = strcmp(role, "rx") ? LlRx : LlTx;
+    ll.role = strcmp(role, "tx") ? LlRx : LlTx;
     ll.baudRate = baudRate;
     ll.nRetransmissions = nTries;
     ll.timeout = timeout;
