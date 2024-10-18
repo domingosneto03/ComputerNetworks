@@ -37,16 +37,16 @@ typedef enum {
     STOP_STATE
 } State;
 
-/*
+
 volatile int alarmEnabled = FALSE;
 volatile int alarmCount = 0;
 
 void alarmHandler(int signal) {
-    alarmEnabled = FALSE;
+    alarmEnabled = TRUE;
     alarmCount++;
     printf("Alarm #%d\n", alarmCount);
 }
-*/
+
 
 
 ////////////////////////////////////////////////
@@ -93,16 +93,16 @@ int llopen(LinkLayer connectionParameters) {
 
         // reads message from Receiver
         case LlTx:
-            //(void)signal(SIGALRM, alarmHandler);
-            //while (alarmCount < connectionParameters.nRetransmissions) { 
+            (void)signal(SIGALRM, alarmHandler);
+            while (connectionParameters.nRetransmissions > 0 && state != STOP_STATE) { 
                 unsigned char buf_W1[5] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
                 write(fd, buf_W1, 5);
                 printf("SET frame sent.\n");
 
-                //alarmEnabled = TRUE;
-                //alarm(connectionParameters.timeout);
+                alarm(connectionParameters.timeout);
+                alarmEnabled = FALSE;
                 
-                while (state != STOP_STATE) {
+                while (state != STOP_STATE && alarmEnabled == FALSE) {
                     int bytes_R = read(fd, buf_R, 1);
                     if(bytes_R > 0) {
                         printf("0x%02X\n", buf_R[0]);
@@ -170,9 +170,11 @@ int llopen(LinkLayer connectionParameters) {
                         }
                     }
                 }
-                if(state != STOP_STATE) return -1;
-                break;
-            //}
+                connectionParameters.nRetransmissions--;
+            }
+            if(state != STOP_STATE) return -1;
+            break;
+
         // reads message from Sender
         case LlRx:
             while(state != STOP_STATE){
