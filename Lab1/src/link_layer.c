@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define BAUDRATE B38400
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -35,6 +36,17 @@ typedef enum {
     BCC_OK,
     STOP_STATE
 } State;
+
+/*
+volatile int alarmEnabled = FALSE;
+volatile int alarmCount = 0;
+
+void alarmHandler(int signal) {
+    alarmEnabled = FALSE;
+    alarmCount++;
+    printf("Alarm #%d\n", alarmCount);
+}
+*/
 
 
 ////////////////////////////////////////////////
@@ -65,7 +77,7 @@ int llopen(LinkLayer connectionParameters) {
     newtio.c_iflag = IGNPAR;
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 30;
+    newtio.c_cc[VTIME] = 0;
     newtio.c_cc[VMIN] = 0;
 
     tcflush(fd, TCIOFLUSH);
@@ -81,50 +93,86 @@ int llopen(LinkLayer connectionParameters) {
 
         // reads message from Receiver
         case LlTx:
-            unsigned char buf_W1[5] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
-            write(fd, buf_W1, 5);
-            
-            while (state != STOP_STATE) {
-                int bytes_R = read(fd, buf_R, 1);
-                if(bytes_R > 0) {
-                    printf("0x%02X\n", buf_R[0]);
-                    switch (state) {
-                        case START:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
-                            break;
+            //(void)signal(SIGALRM, alarmHandler);
+            //while (alarmCount < connectionParameters.nRetransmissions) { 
+                unsigned char buf_W1[5] = {FLAG, A_TX, C_SET, A_TX ^ C_SET, FLAG};
+                write(fd, buf_W1, 5);
+                printf("SET frame sent.\n");
 
-                        case FLAG_RCV:
-                            if (buf_R[0] == FLAG) continue;
-                            else if (buf_R[0] == A_RX) state = A_RCV; 
-                            else state = START;
-                            break;
+                //alarmEnabled = TRUE;
+                //alarm(connectionParameters.timeout);
+                
+                while (state != STOP_STATE) {
+                    int bytes_R = read(fd, buf_R, 1);
+                    if(bytes_R > 0) {
+                        printf("0x%02X\n", buf_R[0]);
+                        switch (state) {
+                            case START:
+                                if (buf_R[0] == FLAG) {
+                                    state = FLAG_RCV;
+                                    printf("State changed to FLAG_RCV\n"); 
+                                } else {
+                                    printf("Unexpected byte, staying in START\n");
+                                } 
+                                break;
 
-                        case A_RCV:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
-                            else if (buf_R[0] == C_UA) state = C_RCV;
-                            else state = START;
-                            break;
+                            case FLAG_RCV:
+                                if (buf_R[0] == FLAG)  {
+                                    printf("FLAG received again, staying in FLAG_RCV\n");
+                                    continue;
+                                } else if (buf_R[0] == A_RX) {
+                                    state = A_RCV; 
+                                    printf("State changed to A_RCV\n");
+                                } else {
+                                    state = START;
+                                    printf("Unexpected byte, returning to START\n");
+                                }
+                                break;
 
-                        case C_RCV:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
-                            else if (buf_R[0] == (A_RX^C_UA)) state = BCC_OK;
-                            else state = START;
-                            break;
+                            case A_RCV:
+                                if (buf_R[0] == FLAG) {
+                                    state = FLAG_RCV;
+                                    printf("FLAG received, returning to FLAG_RCV\n");
+                                } else if (buf_R[0] == C_UA) {
+                                    state = C_RCV;
+                                    printf("State changed to C_RCV\n");
+                                } else {
+                                    state = START;
+                                    printf("Unexpected byte, returning to START\n");
+                                }
+                                break;
 
-                        case BCC_OK:
-                            if (buf_R[0] == FLAG) state = STOP_STATE;
-                            else state = START;
-                            break;
+                            case C_RCV:
+                                if (buf_R[0] == FLAG) {
+                                    state = FLAG_RCV;
+                                    printf("FLAG received, returning to FLAG_RCV\n");
+                                } else if (buf_R[0] == (A_RX^C_UA)) {
+                                    state = BCC_OK;
+                                    printf("State changed to BCC_OK\n");
+                                } else {
+                                    state = START;
+                                    printf("Unexpected byte, returning to START\n");
+                                }
+                                break;
 
-                        default:
-							break;
+                            case BCC_OK:
+                                if (buf_R[0] == FLAG) {
+                                    state = STOP_STATE;
+                                    printf("State changed to STOP\n");
+                                } else {
+                                    state = START;
+                                    printf("Unexpected byte, returning to START\n");
+                                }
+                                break;
+
+                            default:
+                                break;
+                        }
                     }
                 }
-            }
-            
-            if(state != STOP_STATE) return -1;
-            break;
-
+                if(state != STOP_STATE) return -1;
+                break;
+            //}
         // reads message from Sender
         case LlRx:
             while(state != STOP_STATE){
@@ -134,30 +182,61 @@ int llopen(LinkLayer connectionParameters) {
                     printf("0x%02X\n", buf_R[0]);
                     switch (state) {
                         case START:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("State changed to FLAG_RCV\n"); 
+                            } else {
+                                printf("Unexpected byte, staying in START\n");
+                            } 
                             break;
 
                         case FLAG_RCV:
-                            if (buf_R[0] == FLAG) continue;
-                            else if (buf_R[0] == A_TX) state = A_RCV; 
-                            else state = START;
+                            if (buf_R[0] == FLAG)  {
+                                printf("FLAG received again, staying in FLAG_RCV\n");
+                                continue;
+                            } else if (buf_R[0] == A_TX) {
+                                state = A_RCV; 
+                                printf("State changed to A_RCV\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
                             break;
 
                         case A_RCV:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
-                            else if (buf_R[0] == C_SET) state = C_RCV;
-                            else state = START;
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("FLAG received, returning to FLAG_RCV\n");
+                            } else if (buf_R[0] == C_SET) {
+                                state = C_RCV;
+                                printf("State changed to C_RCV\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
                             break;
 
                         case C_RCV:
-                            if (buf_R[0] == FLAG) state = FLAG_RCV;
-                            else if (buf_R[0] == (A_TX^C_SET)) state = BCC_OK;
-                            else state = START;
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("FLAG received, returning to FLAG_RCV\n");
+                            } else if (buf_R[0] == (A_TX^C_SET)) {
+                                state = BCC_OK;
+                                printf("State changed to BCC_OK\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
                             break;
 
                         case BCC_OK:
-                            if (buf_R[0] == FLAG) state = STOP_STATE;
-                            else state = START;
+                            if (buf_R[0] == FLAG) {
+                                state = STOP_STATE;
+                                printf("State changed to STOP\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
                             break;
 
                         default:
@@ -168,6 +247,7 @@ int llopen(LinkLayer connectionParameters) {
             
             unsigned char buf_W2[5] = {FLAG, A_RX, C_UA, A_RX ^ C_UA, FLAG};
 			write(fd, buf_W2, 5);
+            printf("UA frame sent.\n");
             break;
         
         default:
