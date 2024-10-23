@@ -26,7 +26,10 @@
 #define C_REJ0 0x54
 #define C_REJ1 0x55
 #define C_DISC 0x0B
+#define C_N0 0x00
+#define C_N1 0x80
 #define BUF_SIZE 256
+#define ESCAPE 0x7d
 
 typedef enum {
     START,
@@ -40,6 +43,7 @@ typedef enum {
 
 volatile int alarmEnabled = FALSE;
 volatile int alarmCount = 0;
+extern int fd;
 
 void alarmHandler(int signal) {
     alarmEnabled = TRUE;
@@ -56,7 +60,7 @@ int llopen(LinkLayer connectionParameters) {
 
     State state = START;
 
-    int fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
+    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
     if (fd < 0) {
         perror(connectionParameters.serialPort);
@@ -275,9 +279,123 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
+    State state = START;
+    unsigned char buf_R[BUF_SIZE + 1] = {0};
+    unsigned char field;
+    int i = 0;
+    while (state != STOP_STATE) {
+        int bytes_R = read(fd, buf_R, 1);
+                if(bytes_R > 0) {
+                    printf("0x%02X\n", buf_R[0]);
+                    switch (state) {
+                        case START:
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("State changed to FLAG_RCV\n"); 
+                            } else {
+                                printf("Unexpected byte, staying in START\n");
+                            } 
+                            break;
 
-    return 0;
+                        case FLAG_RCV:
+                            if (buf_R[0] == FLAG)  {
+                                printf("FLAG received again, staying in FLAG_RCV\n");
+                                continue;
+                            } else if (buf_R[0] == A_TX) {
+                                state = A_RCV; 
+                                printf("State changed to A_RCV\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
+                            break;
+
+                        case A_RCV:
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("FLAG received, returning to FLAG_RCV\n");
+                            } else if (buf_R[0] == C_N0 || buf_R[0] == C_N1 || buf_R[0] == C_DISC) {
+                                state = C_RCV;
+                                field = buf_R[0];
+                                printf("State changed to C_RCV\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
+                            break;
+
+                        case C_RCV:
+                            if (buf_R[0] == FLAG) {
+                                state = FLAG_RCV;
+                                printf("FLAG received, returning to FLAG_RCV\n");
+                            } else if (buf_R[0] == (A_TX^field)) {
+                                if (field ==  C_DISC) {
+                                    unsigned char buf_W[5] = {FLAG, A_RX, C_DISC, A_RX ^ C_DISC, FLAG};
+							        write(fd, buf_W, 5);
+							        return 0;
+                                }
+                                state = BCC_OK;
+                                printf("State changed to BCC_OK\n");
+                            } else {
+                                state = START;
+                                printf("Unexpected byte, returning to START\n");
+                            }
+                            break;
+
+                        case BCC_OK:
+                            if (buf_R[0] == ESCAPE) {
+                                printf("Escape character received, reading next byte\n");
+                                read(fd, buf_R, 1);
+						        packet[i++] = buf_R[0] ^ 0x20;
+                                printf("Byte after escape processed: 0x%02X\n", packet[i - 1]);
+                            } else if (buf_R[0] == FLAG){
+                                printf("FLAG received, checking BCC2 and processing packet\n");
+                                unsigned char bcc2 = packet[--i];
+                                packet[i] = '\0';
+                                unsigned char acc = packet[0];
+                                printf("Initial XOR value for BCC2 check: 0x%02X\n", acc);
+                                for (unsigned int j = 1; j < i; j++) {
+                                    acc ^= packet[j];
+                                }
+                                if (bcc2 == acc){
+                                    printf("BCC2 check passed, entering STOP_STATE\n");
+                                    state = STOP_STATE;
+                                    unsigned char rr;
+                                    if (field == C_N0) {
+                                        rr = C_RR0;
+                                        printf("Field is C_N0, sending RR0\n");
+                                    } else {
+                                        rr = C_RR1;
+                                        printf("Field is C_N1, sending RR1\n");
+                                    }
+                                    unsigned char buf_W[5] = {FLAG, A_RX, rr, A_RX ^ rr, FLAG};
+                                    write(fd, buf_W, 5);
+                                    return rr;
+                                } else {
+                                    printf("BCC2 check failed, sending REJ\n");
+                                    unsigned char rej;
+                                    if (field == C_N0) {
+                                        rej = C_REJ0;
+                                        printf("Field is C_N0, sending REJ0\n");
+                                    } else {
+                                        rej = C_REJ1;
+                                        printf("Field is C_N1, sending REJ1\n");
+                                    }
+                                    unsigned char buf_W[5] = {FLAG, A_RX, rej, A_RX ^ rej, FLAG};
+                                    write(fd, buf_W, 5);
+                                    return -1;
+                                }
+                            } else {
+                                packet[i++] = buf_R[0];
+                                printf("Appending byte to packet: 0x%02X\n", buf_R[0]);
+                            }
+                            break;    
+                        default:
+							break;
+                    }
+                }
+    }
+    return -1;
 }
 
 ////////////////////////////////////////////////
