@@ -45,6 +45,8 @@ typedef enum {
 
 volatile int alarmEnabled = FALSE;
 volatile int alarmCount = 0;
+int timeout = 0;
+int retransmissions = 0;
 int info = 0;
 extern int fd;
 
@@ -95,6 +97,8 @@ int llopen(LinkLayer connectionParameters) {
     }
 
     unsigned char buf_R[BUF_SIZE + 1] = {0};
+    timeout = connectionParameters.timeout;
+    retransmissions = connectionParameters.nRetransmissions;
 
     switch (connectionParameters.role) {
 
@@ -109,6 +113,7 @@ int llopen(LinkLayer connectionParameters) {
                 alarm(connectionParameters.timeout);
                 alarmEnabled = FALSE;
                 
+                printf("Receiving UA frame\n");
                 while (state != STOP_STATE && alarmEnabled == FALSE) {
                     int bytes_R = read(fd, buf_R, 1);
                     if(bytes_R > 0) {
@@ -184,6 +189,7 @@ int llopen(LinkLayer connectionParameters) {
 
         // reads message from Sender
         case LlRx:
+            printf("Receiving SET frame\n");
             while(state != STOP_STATE){
 
                 int bytes_R = read(fd, buf_R, 1);
@@ -275,7 +281,12 @@ int llwrite(const unsigned char *buf, int bufSize) {
 	//Header
     buf_W[0] = FLAG;
     buf_W[1] = A;
-    buf_W[2] = info ? C_N0 : C_N1;
+    
+    if (info == 0) 
+        buf_W[2] = C_N0;
+    else
+        buf_W[2] = C_N1;
+
     buf_W[3] = A ^ buf_W[2];
     
     info = !info;
@@ -290,6 +301,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 			buf_W[data++] = buf[i];
 		}
 	}
+
     
 	//Calculate BCC2
 	unsigned char BCC2 = buf[0];
@@ -298,43 +310,47 @@ int llwrite(const unsigned char *buf, int bufSize) {
 	}
     
 	if(BCC2 == FLAG || BCC2 == ESCAPE) {
-		BCC2 ^= 0x20;
-	}
-	buf_W[data++] = BCC2;
+        buf_W[data++] = ESCAPE;
+        buf_W[data++] = BCC2 ^ 0x20;
+    } else {
+        buf_W[data++] = BCC2;
+    }
+
 	buf_W[data++] = FLAG;
 
 	buf_W = realloc(buf_W, data);
 
-    State state = START;
-    LinkLayer ll;
-    ll.nRetransmissions = 3;
-    ll.timeout = 4;
 	int check = FALSE;
     unsigned char field = 0;
 	int bytes_W = 0;
+    int count = 0;
 
     unsigned char buf_R[BUF_SIZE + 1] = {0};
 
 	(void) signal(SIGALRM, alarmHandler);
 	
-    printf("Sending data packet\n");
-	while(ll.nRetransmissions > 0 && state != STOP_STATE){
-		bytes_W = write(fd, buf_W, data++);
+	while(count < retransmissions){
+        count++;
+        State state = START;
+		bytes_W = write(fd, buf_W, data);
+        printf("Data packet sent\n");
 
+    
 		//Wait until all bytes have been wrtien
 		sleep(1);
 
-		alarm(ll.timeout);
+		alarm(timeout);
 		alarmEnabled = FALSE;	
 
+        printf("Receiving response by receiver\n");
 		while(state != STOP_STATE && alarmEnabled == FALSE){
             int bytes_R = read(fd, buf_R, 1);		
 			if(bytes_R > 0){
                 printf("0x%02X\n", buf_R[0]);
 				switch(state){
 					case START:
-						if(buf_R[0] == FLAG_RCV) {
-                            state = FLAG;
+						if(buf_R[0] == FLAG) {
+                            state = FLAG_RCV;
                             printf("State changed to FLAG_RCV\n"); 
                         } else {
                             printf("Unexpected byte, staying in START\n");
@@ -395,9 +411,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 						break;
 				}
 			}
-		}
-        ll.nRetransmissions--;
-		
+		}		
 		
 		if(field == C_RR0 || field == C_RR1) {
 			check = TRUE;
@@ -427,7 +441,7 @@ int llread(unsigned char *packet)
     unsigned char field;
     int i = 0;
     printf("Receiving data packet.\n");
-    while (state != STOP_STATE) {
+    while (state != STOP_STATE && alarmEnabled == FALSE) {
         int bytes_R = read(fd, buf_R, 1);
                 if(bytes_R > 0) {
                     printf("0x%02X\n", buf_R[0]);
@@ -491,7 +505,7 @@ int llread(unsigned char *packet)
                             if (buf_R[0] == ESCAPE) {
                                 printf("Escape character received, reading next byte\n");
                                 read(fd, buf_R, 1);
-						        packet[i + 1] = buf_R[0] ^ 0x20;
+						        packet[i++] = buf_R[0] ^ 0x20;
                                 printf("Byte after escape processed: 0x%02X\n", packet[i - 1]);
 
                             } else if (buf_R[0] == FLAG){

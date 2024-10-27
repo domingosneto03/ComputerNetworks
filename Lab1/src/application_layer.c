@@ -103,18 +103,18 @@ void receiveFile(const char *filename) {
 
     // Wait for START packet
     packetType = llread(packet);
-    /*
-    if (packetType != START_CONTROL) {
+    
+    if (packetType == -1) {
         perror("Expected START packet, received something else");
         fclose(file);
         exit(1);
     }
-    */
+    
     printf("File transfer started.\n");
 
     // Receive data packets
     while ((packetType = llread(packet)) != END_CONTROL) {
-        if (packetType == DATA_CONTROL) {
+        if (packetType != -1) {
             fwrite(&packet[1], 1, strlen((char *)&packet[1]), file);
         } else {
             perror("Unexpected packet type");
