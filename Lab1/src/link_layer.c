@@ -284,10 +284,10 @@ int llwrite(const unsigned char *buf, int bufSize) {
 	for(int i = 0; i < bufSize; i++){
 		//Byte stuffing
 		if(buf[i] == FLAG || buf[i] == ESCAPE){
-			buf_W[data + 1] = ESCAPE;
-			buf_W[data + 1] = buf[i] ^ 0x20;
+			buf_W[data++] = ESCAPE;
+			buf_W[data++] = buf[i] ^ 0x20;
 		} else {
-			buf_W[data + 1] = buf[i];
+			buf_W[data++] = buf[i];
 		}
 	}
     
@@ -300,8 +300,8 @@ int llwrite(const unsigned char *buf, int bufSize) {
 	if(BCC2 == FLAG || BCC2 == ESCAPE) {
 		BCC2 ^= 0x20;
 	}
-	buf_W[data + 1] = BCC2;
-	buf_W[data + 1] = FLAG;
+	buf_W[data++] = BCC2;
+	buf_W[data++] = FLAG;
 
 	buf_W = realloc(buf_W, data);
 
@@ -317,8 +317,9 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
 	(void) signal(SIGALRM, alarmHandler);
 	
-	while(ll.nRetransmissions < 0 && state != STOP_STATE){
-		bytes_W = write(fd, buf_W, data + 1);
+    printf("Sending data packet\n");
+	while(ll.nRetransmissions > 0 && state != STOP_STATE){
+		bytes_W = write(fd, buf_W, data++);
 
 		//Wait until all bytes have been wrtien
 		sleep(1);
@@ -395,6 +396,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 				}
 			}
 		}
+        ll.nRetransmissions--;
 		
 		
 		if(field == C_RR0 || field == C_RR1) {
@@ -404,7 +406,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 			continue;
 		}
 	}
-    ll.nRetransmissions--;
 	
 	free(buf_W);
 	
@@ -425,6 +426,7 @@ int llread(unsigned char *packet)
     unsigned char buf_R[BUF_SIZE + 1] = {0};
     unsigned char field;
     int i = 0;
+    printf("Receiving data packet.\n");
     while (state != STOP_STATE) {
         int bytes_R = read(fd, buf_R, 1);
                 if(bytes_R > 0) {
@@ -491,6 +493,7 @@ int llread(unsigned char *packet)
                                 read(fd, buf_R, 1);
 						        packet[i + 1] = buf_R[0] ^ 0x20;
                                 printf("Byte after escape processed: 0x%02X\n", packet[i - 1]);
+
                             } else if (buf_R[0] == FLAG){
                                 printf("FLAG received, checking BCC2 and processing packet\n");
                                 unsigned char bcc2 = packet[--i];
@@ -528,6 +531,7 @@ int llread(unsigned char *packet)
                                     write(fd, buf_W, 5);
                                     return -1;
                                 }
+
                             } else {
                                 packet[i++] = buf_R[0];
                                 printf("Appending byte to packet: 0x%02X\n", buf_R[0]);
