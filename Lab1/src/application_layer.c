@@ -58,7 +58,7 @@ void sendFile(const char *filename) {
     // Send START packet
     unsigned char startPacket[DATA_PACKET_SIZE];
     startPacket[0] = START_CONTROL;
-    sprintf((char *)&startPacket[1], "%ld", fileSize); // Add file size to packet
+    memcpy(&startPacket[1], &fileSize, sizeof(long));
     if (llwrite(startPacket, strlen((char *)startPacket)) == -1) {
         perror("Error sending START packet");
         fclose(file);
@@ -68,24 +68,27 @@ void sendFile(const char *filename) {
     // Send data packets
     unsigned char dataPacket[DATA_PACKET_SIZE];
     size_t bytesRead;
-    while ((bytesRead = fread(dataPacket + 1, 1, DATA_PACKET_SIZE - 1, file)) > 0) {
-        dataPacket[0] = DATA_CONTROL; // Data packet control field
-        if (llwrite(dataPacket, bytesRead + 1) == -1) {
+    while ((bytesRead = fread(&dataPacket[2], 1, DATA_PACKET_SIZE - 2, file)) > 0) {
+        dataPacket[0] = DATA_CONTROL;
+        dataPacket[1] = bytesRead;  // Length of data in this packet
+        if (llwrite(dataPacket, bytesRead + 2) == -1) {
             perror("Error sending data packet");
             fclose(file);
             exit(1);
         }
     }
 
+
     // Send END packet
     unsigned char endPacket[DATA_PACKET_SIZE];
     endPacket[0] = END_CONTROL;
-    sprintf((char *)&endPacket[1], "%ld", fileSize);
-    if (llwrite(endPacket, strlen((char *)endPacket)) == -1) {
+    memcpy(&endPacket[1], &fileSize, sizeof(long));
+    if (llwrite(endPacket, sizeof(long) + 1) == -1) {
         perror("Error sending END packet");
         fclose(file);
         exit(1);
     }
+
 
     fclose(file);
     printf("File transfer complete.\n");
@@ -104,7 +107,10 @@ void receiveFile(const char *filename) {
     // Wait for START packet
     packetType = llread(packet);
     
-    if (packetType == -1) {
+    if (packetType == START_CONTROL) {
+        long receivedFileSize;
+        memcpy(&receivedFileSize, &packet[1], sizeof(long));
+    } else {
         perror("Expected START packet, received something else");
         fclose(file);
         exit(1);
@@ -114,14 +120,29 @@ void receiveFile(const char *filename) {
 
     // Receive data packets
     while ((packetType = llread(packet)) != END_CONTROL) {
-        if (packetType != -1) {
-            fwrite(&packet[1], 1, strlen((char *)&packet[1]), file);
-        } else {
+        if (packetType == DATA_CONTROL) {
+            int dataSize = packet[1];
+            fwrite(&packet[2], 1, dataSize, file);
+        } else if (packetType == -2){
+            continue;
+        } else {    
             perror("Unexpected packet type");
             fclose(file);
             exit(1);
         }
     }
+
+    if (packetType == END_CONTROL) {
+        long endFileSize;
+        memcpy(&endFileSize, &packet[1], sizeof(long));
+        // Optionally compare endFileSize with received bytes for integrity check
+    } else {
+        perror("Expected END packet, received something else");
+        fclose(file);
+        exit(1);
+    }
+
+
 
     fclose(file);
     printf("File received successfully.\n");
