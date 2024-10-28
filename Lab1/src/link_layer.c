@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define BAUDRATE B38400
+#define BAUDRATE 38400
 #define _POSIX_SOURCE 1 // POSIX compliant source
 #define FALSE 0
 #define TRUE 1
@@ -65,36 +65,7 @@ int llopen(LinkLayer connectionParameters) {
 
     State state = START;
 
-    fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
-
-    if (fd < 0) {
-        perror(connectionParameters.serialPort);
-        exit(-1);
-    }
-
-    struct termios oldtio;
-    struct termios newtio;
-
-    if (tcgetattr(fd, &oldtio) == -1) {
-        perror("tcgetattr");
-        exit(-1);
-    }
-
-    memset(&newtio, 0, sizeof(newtio));
-
-    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
-    newtio.c_iflag = IGNPAR;
-    newtio.c_oflag = 0;
-    newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = 0;
-    newtio.c_cc[VMIN] = 0;
-
-    tcflush(fd, TCIOFLUSH);
-
-    if (tcsetattr(fd, TCSANOW, &newtio) == -1) {
-        perror("tcsetattr");
-        exit(-1);
-    }
+    fd = openSerialPort(connectionParameters.serialPort, BAUDRATE);
 
     unsigned char buf_R[BUF_SIZE + 1] = {0};
     timeout = connectionParameters.timeout;
@@ -292,6 +263,11 @@ int llwrite(const unsigned char *buf, int bufSize) {
     info = !info;
 	int data = 4;
 	
+    unsigned char BCC2 = buf[0];
+	for(int i = 1; i < bufSize; i++){
+		BCC2 ^= buf[i];
+	}
+
 	for(int i = 0; i < bufSize; i++){
 		if(buf[i] == FLAG || buf[i] == ESCAPE){
 			buf_W[data++] = ESCAPE;
@@ -299,11 +275,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 		} else {
 			buf_W[data++] = buf[i];
 		}
-	}
-
-	unsigned char BCC2 = 0;
-	for(int i = 0; i < bufSize; i++){
-		BCC2 ^= buf[i];
 	}
     
 	if(BCC2 == FLAG || BCC2 == ESCAPE) {
@@ -329,7 +300,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 	while(count < retransmissions){
         count++;
         State state = START;
-		bytes_W = write(fd, buf_W, data);
+		bytes_W = write(fd, buf_W, data + 1);
         printf("Data packet sent\n");
 
     
@@ -488,10 +459,9 @@ int llread(unsigned char *packet)
                                     unsigned char buf_W[5] = {FLAG, A_, C_DISC, A_ ^ C_DISC, FLAG};
 							        write(fd, buf_W, 5);
 							        return 0;
-                                } else {
-                                    state = BCC1_OK;
-                                    printf("State changed to BCC1_OK\n");
-                                }                               
+                                }
+                                state = BCC1_OK;
+                                printf("State changed to BCC1_OK\n");                               
                             } else {
                                 state = START;
                                 printf("Unexpected byte, returning to START\n");
@@ -501,7 +471,7 @@ int llread(unsigned char *packet)
                         case BCC1_OK:
                             if (buf_R[0] == ESCAPE) {
                                 printf("ESC received, reading next byte\n");
-                                read(fd, buf_R, 1);
+                                read(fd, &buf_R[0], 1);
 						        packet[i++] = buf_R[0] ^ 0x20;
                                 printf("After ESC: 0x%02X\n", packet[i - 1]);
 
