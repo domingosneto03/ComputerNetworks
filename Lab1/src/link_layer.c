@@ -277,7 +277,7 @@ int llopen(LinkLayer connectionParameters) {
 // LLWRITE
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize) {
-    unsigned char* buf_W = (unsigned char*) malloc(HT_SIZE + 2 * bufSize);
+    unsigned char* buf_W = (unsigned char*) malloc(HT_SIZE + bufSize);
 	//Header
     buf_W[0] = FLAG;
     buf_W[1] = A;
@@ -301,7 +301,7 @@ int llwrite(const unsigned char *buf, int bufSize) {
 		}
 	}
 
-	unsigned char BCC2 = 0;
+    unsigned char BCC2 = 0;
 	for(int i = 0; i < bufSize; i++){
 		BCC2 ^= buf[i];
 	}
@@ -326,11 +326,11 @@ int llwrite(const unsigned char *buf, int bufSize) {
 
 	(void) signal(SIGALRM, alarmHandler);
 	
-	while(count < retransmissions){
-        count++;
+	while(count <= retransmissions){
         State state = START;
 		bytes_W = write(fd, buf_W, data);
         printf("Data packet sent\n");
+        count++;
 
     
 		//Wait until all bytes have been wrtien
@@ -357,7 +357,6 @@ int llwrite(const unsigned char *buf, int bufSize) {
 					case FLAG_RCV:
 						if(buf_R[0] == FLAG) {
 							printf("FLAG received again, staying in FLAG_RCV\n");
-                            continue;
 						} else if (buf_R[0] == A) {
                             state = A_RCV; 
                             printf("State changed to A_RCV\n");
@@ -455,7 +454,6 @@ int llread(unsigned char *packet)
                         case FLAG_RCV:
                             if (buf_R[0] == FLAG)  {
                                 printf("FLAG received again, staying in FLAG_RCV\n");
-                                continue;
                             } else if (buf_R[0] == A) {
                                 state = A_RCV; 
                                 printf("State changed to A_RCV\n");
@@ -487,7 +485,7 @@ int llread(unsigned char *packet)
                                 if (control_field ==  C_DISC) {
                                     unsigned char buf_W[5] = {FLAG, A_, C_DISC, A_ ^ C_DISC, FLAG};
 							        write(fd, buf_W, 5);
-							        return 0;
+							        return packet[0];
                                 } else {
                                     state = BCC1_OK;
                                     printf("State changed to BCC1_OK\n");
@@ -501,21 +499,16 @@ int llread(unsigned char *packet)
                         case BCC1_OK:
                             if (buf_R[0] == ESCAPE) {
                                 printf("ESC received, reading next byte\n");
-                                read(fd, buf_R, 1);
 						        packet[i++] = buf_R[0] ^ 0x20;
-                                printf("After ESC: 0x%02X\n", packet[i - 1]);
+                                printf("After ESC was processed: 0x%02X\n", packet[i - 1]);
 
                             } else if (buf_R[0] == FLAG){
                                 printf("FLAG received, checking BCC2 and processing packet\n");
                                 unsigned char bcc2 = packet[--i];
                                 packet[i] = '\0';
                                 unsigned char acc = 0;
-                                unsigned char acC = 0;
-                                printf("BEGINNING PROCESS\n");
                                 for (unsigned int j = 0; j < i; j++) {
                                     acc ^= packet[j];
-                                    printf("%d. 0x%02X (XOR) 0x%02X = 0x%02X\n", j, acC, packet[j], acc);
-                                    acC = acc;
                                 }
                                 printf("bcc2: 0x%02X | acc: 0x%02X\n", bcc2, acc);
                                 if (bcc2 == acc){
