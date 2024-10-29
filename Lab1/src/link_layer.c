@@ -230,7 +230,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 	while(count < retransmissions){
         count++;
         State state = START;
-		bytes_W = writeBytesSerialPort(buf_W, data + 1);
+		bytes_W = writeBytesSerialPort(buf_W, data);
         printf("Data packet sent\n");
     
 		//Wait until all bytes have been wrtien
@@ -399,7 +399,6 @@ int llread(unsigned char *packet)
                         unsigned char bcc2 = packet[--i];
                         packet[i] = '\0';
                         unsigned char acc = 0;
-                        printf("BEGINNING PROCESS\n");
                         for (unsigned int j = 0; j < i; j++) {
                             acc ^= packet[j];
                         }
