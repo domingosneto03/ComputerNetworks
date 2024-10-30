@@ -31,6 +31,8 @@
 #define BUF_SIZE 256
 #define ESCAPE 0x7d
 #define HT_SIZE 6
+#define TX 1
+#define RX 0 
 
 typedef enum {
     START,
@@ -48,15 +50,20 @@ volatile int alarmCount = 0;
 int timeout = 0;
 int retransmissions = 0;
 int info = 0;
+int role;
+
+int i_frames = 0;
+int u_frames = 0;
+int s_frames = 0;
+int dup_frames = 0;
+int rej_frames = 0;
+
 
 void alarmHandler(int signal) {
     alarmEnabled = TRUE;
     alarmCount++;
     printf("Alarm #%d\n", alarmCount);
 }
-
-
-
 
 State StateMachine(State *state, int func, LinkLayerRole role) {
     if ((func != 0 && role != -1) || (func == 0 && role == -1)) {
@@ -158,6 +165,7 @@ int llopen(LinkLayer connectionParameters)
 
     switch (connectionParameters.role) {
         case LlTx:
+            role = TX;
             (void)signal(SIGALRM, alarmHandler);
             while (connectionParameters.nRetransmissions > 0 && state != STOP_STATE) {
                 unsigned char buf_W1[5] = {FLAG, A, C_SET, A ^ C_SET, FLAG};
@@ -174,14 +182,18 @@ int llopen(LinkLayer connectionParameters)
             if(state != STOP_STATE) {
                 return -1;
             }
+            s_frames++;
             break;
         
         case LlRx:
+            role = RX;
             printf("---------------------------------------------\n");
             StateMachine(&state, 0, LlRx);
             unsigned char buf_W2[5] = {FLAG, A, C_UA, A ^ C_UA, FLAG};
 			writeBytesSerialPort(buf_W2, 5);
             printf("UA frame sent.\n");
+            u_frames++;
+            s_frames++;
             break;
         
         default:
@@ -239,14 +251,13 @@ int llwrite(const unsigned char *buf, int bufSize)
 	int check = FALSE;
     unsigned char control_field = 0;
 	int bytes_W = 0;
-    int count = 0;
 
 	(void) signal(SIGALRM, alarmHandler);
 	
-	while(count < retransmissions){
-        count++;
+	while(retransmissions > 0){
         State state = START;
-		bytes_W = writeBytesSerialPort(buf_W, data + 1);
+		bytes_W = writeBytesSerialPort(buf_W, data);
+        i_frames++;
         printf("Data packet sent\n");
     
 		//Wait until all bytes have been wrtien
@@ -259,10 +270,13 @@ int llwrite(const unsigned char *buf, int bufSize)
         control_field = StateMachine(&state, 1, -1);
 		if(control_field == C_RR0 || control_field == C_RR1) {
 			check = TRUE;
+            s_frames++;
 			break;
 		} else if(control_field == C_REJ0 || control_field == C_REJ1) {
+            s_frames++;
 			continue;
 		}
+        retransmissions--;
 	}
 	
 	free(buf_W);
@@ -283,6 +297,7 @@ int llread(unsigned char *packet)
     State state = START;
     unsigned char buf_R[BUF_SIZE + 1] = {0};
     unsigned char control_field;
+    unsigned char last_control_field = 0x7e;
     int i = 0;
     printf("---------------------------------------------\n");
     while (state != STOP_STATE && alarmEnabled == FALSE) {
@@ -317,6 +332,11 @@ int llread(unsigned char *packet)
                     } else if (buf_R[0] == C_N0 || buf_R[0] == C_N1 || buf_R[0] == C_DISC) {
                         state = C_RCV;
                         control_field = buf_R[0];
+                        i_frames++;
+                        if(control_field == last_control_field) {
+                            dup_frames++;
+                            printf("Duplicated frame detected\n");
+                        }
                     } else {
                         state = START;
                         printf("Unexpected byte, returning to START\n");
@@ -329,6 +349,7 @@ int llread(unsigned char *packet)
                         printf("FLAG received, returning to FLAG_RCV\n");
                     } else if (buf_R[0] == (A ^ control_field)) {
                         if (control_field ==  C_DISC) {
+                            u_frames++;
                             unsigned char buf_W[5] = {FLAG, A_, C_DISC, A_ ^ C_DISC, FLAG};
                             writeBytesSerialPort(buf_W, 5);
                             return 0;
@@ -353,7 +374,6 @@ int llread(unsigned char *packet)
                         unsigned char bcc2 = packet[--i];
                         packet[i] = '\0';
                         unsigned char acc = 0;
-                        printf("BEGINNING PROCESS\n");
                         for (unsigned int j = 0; j < i; j++) {
                             acc ^= packet[j];
                         }
@@ -368,6 +388,7 @@ int llread(unsigned char *packet)
                                 rr = C_RR1;
                                 printf("Control Field is C_N1, sending RR1\n");
                             }
+                            s_frames++;
                             unsigned char buf_W[5] = {FLAG, A, rr, A ^ rr, FLAG};
                             writeBytesSerialPort(buf_W, 5);
                             return packet[0];
@@ -381,6 +402,8 @@ int llread(unsigned char *packet)
                                 rej = C_REJ1;
                                 printf("Control Field is C_N1, sending REJ1\n");
                             }
+                            rej_frames++;
+                            s_frames++;
                             unsigned char buf_W[5] = {FLAG, A, rej, A ^ rej, FLAG};
                             writeBytesSerialPort(buf_W, 5);
                             return -1;
@@ -413,6 +436,7 @@ int llclose(int showStatistics)
 		alarm(timeout);
 		alarmEnabled = FALSE;
 
+        u_frames++;
         StateMachine(&state, 3, -1);
 		retransmissions--;
 
@@ -424,7 +448,23 @@ int llclose(int showStatistics)
 
 	unsigned char buf_W[5] = {FLAG, A_, C_UA, A_ ^ C_UA, FLAG};
 	writeBytesSerialPort(buf_W, 5);
+    u_frames++;
 
+    switch(role) {
+        case TX:
+            printf("I frames sent: %d\n", i_frames);
+            printf("U frames sent: %d\n", u_frames);
+            printf("S frames received: %d\n", s_frames);
+            break;
+
+        case RX:
+            printf("I frames received: %d\n", i_frames);
+            printf("U frames received: %d\n", u_frames);
+            printf("S frames sent: %d\n", s_frames);
+            printf("Duplicated frames received: %d\n", dup_frames);
+            printf("Rejected frames: %d\n", rej_frames);
+            break;
+    }
     int clstat = closeSerialPort();
     return clstat;
 }
