@@ -57,6 +57,7 @@ void alarmHandler(int signal) {
 
 
 
+
 State StateMachine(State *state, int func, LinkLayerRole role) {
     if ((func != 0 && role != -1) || (func == 0 && role == -1)) {
         return -1;
@@ -75,6 +76,7 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
                             printf("Unexpected byte, staying in START\n");
                         } 
                         break;
+
 
                     case FLAG_RCV:
                         if (buf_R[0] == FLAG)  {
@@ -286,7 +288,7 @@ int llread(unsigned char *packet)
     while (state != STOP_STATE && alarmEnabled == FALSE) {
         int bytes_R = readByteSerialPort(buf_R);
         if(bytes_R > 0) {
-            printf("0x%02X\n", buf_R[0]);
+            //printf("0x%02X\n", buf_R[0]);
             switch (state) {
                 case START:
                     if (buf_R[0] == FLAG) {
@@ -340,13 +342,14 @@ int llread(unsigned char *packet)
 
                 case BCC1_OK:
                     if (buf_R[0] == ESCAPE) {
-                        printf("ESC received, reading next byte\n");
+                        //printf("ESC received, reading next byte\n");
                         readByteSerialPort(buf_R);
                         packet[i++] = buf_R[0] ^ 0x20;
-                        printf("After ESC: 0x%02X\n", packet[i - 1]);
+                        //printf("After ESC: 0x%02X\n", packet[i - 1]);
 
                     } else if (buf_R[0] == FLAG){
-                        printf("FLAG received, checking BCC2 and processing packet\n");
+                        printf("Packet received\n");
+                        printf("Checking BCC2 and processing packet\n");
                         unsigned char bcc2 = packet[--i];
                         packet[i] = '\0';
                         unsigned char acc = 0;
@@ -355,7 +358,7 @@ int llread(unsigned char *packet)
                             acc ^= packet[j];
                         }
                         if (bcc2 == acc){
-                            printf("BCC2 check passed, entering STOP_STATE\n");
+                            printf("BCC2 check passed, sending RR\n");
                             state = STOP_STATE;
                             unsigned char rr;
                             if (control_field == C_N0) {
@@ -384,7 +387,6 @@ int llread(unsigned char *packet)
                         }
                     } else {
                         packet[i++] = buf_R[0];
-                        //printf("Appending byte to packet: 0x%02X\n", buf_R[0]);
                     }
                     break;    
                 default:
@@ -410,8 +412,10 @@ int llclose(int showStatistics)
 
 		alarm(timeout);
 		alarmEnabled = FALSE;
+
         StateMachine(&state, 3, -1);
 		retransmissions--;
+
 	}
 
 	if(state != STOP_STATE) {
