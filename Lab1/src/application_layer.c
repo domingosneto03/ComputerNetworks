@@ -36,7 +36,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
 
     // Close the link layer
-    if (llclose(FALSE) == -1) {
+    if (llclose(1) == -1) {
         printf("llclose error\n");
         exit(1);
     }

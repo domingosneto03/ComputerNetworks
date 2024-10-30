@@ -58,7 +58,7 @@ void alarmHandler(int signal) {
 
 State StateMachine(State state, LinkLayerRole role){
     unsigned char buf_R[BUF_SIZE + 1] = {0};
-    while(state != STOP_STATE) {
+    while(state != STOP_STATE && alarmEnabled == FALSE) {
         int bytes_R = readByteSerialPort(buf_R);
         if(bytes_R > 0) {
             printf("0x%02X\n", buf_R[0]);
@@ -433,7 +433,6 @@ int llread(unsigned char *packet)
                         }
                     } else {
                         packet[i++] = buf_R[0];
-                        //printf("Appending byte to packet: 0x%02X\n", buf_R[0]);
                     }
                     break;    
                 default:
@@ -464,7 +463,7 @@ int llclose(int showStatistics)
 		while(alarmEnabled == FALSE && state != STOP_STATE) {
             int bytes_R = readByteSerialPort(buf_R);
 			if(bytes_R > 0) {
-                printf("0x%02X\n", buf_R[0]);
+                //printf("0x%02X\n", buf_R[0]);
 				switch(state) {
 					case START: 
 						if(buf_R[0] == FLAG) {
