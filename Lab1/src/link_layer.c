@@ -171,6 +171,7 @@ int llopen(LinkLayer connectionParameters)
                 unsigned char buf_W1[5] = {FLAG, A, C_SET, A ^ C_SET, FLAG};
                 writeBytesSerialPort(buf_W1, 5);
                 printf("SET frame sent.\n");
+                u_frames++;
 
                 alarm(connectionParameters.timeout);
                 alarmEnabled = FALSE;
@@ -258,7 +259,6 @@ int llwrite(const unsigned char *buf, int bufSize)
         State state = START;
 		bytes_W = writeBytesSerialPort(buf_W, data);
         i_frames++;
-        printf("Data packet sent\n");
     
 		//Wait until all bytes have been wrtien
 		sleep(1);
@@ -450,6 +450,8 @@ int llclose(int showStatistics)
 	writeBytesSerialPort(buf_W, 5);
     u_frames++;
 
+    printf("---------------------------------------------\n");
+
     switch(role) {
         case TX:
             printf("I frames sent: %d\n", i_frames);
@@ -465,6 +467,9 @@ int llclose(int showStatistics)
             printf("Rejected frames: %d\n", rej_frames);
             break;
     }
+
+    printf("---------------------------------------------\n");
+
     int clstat = closeSerialPort();
     return clstat;
 }

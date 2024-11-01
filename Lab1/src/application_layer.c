@@ -29,6 +29,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         exit(1);
     }
 
+    // Depending on the role, functions to send and receive the file
     if (ll.role == LlTx) {
         sendFile(filename);
     } else {
@@ -56,6 +57,7 @@ void sendFile(const char *filename) {
     fseek(file, 0, SEEK_SET);
 
     // Send START packet
+    printf("START packet sent\n");
     unsigned char startPacket[DATA_PACKET_SIZE];
     startPacket[0] = START_CONTROL;
     memcpy(&startPacket[1], &fileSize, sizeof(long));
@@ -69,8 +71,9 @@ void sendFile(const char *filename) {
     unsigned char dataPacket[DATA_PACKET_SIZE];
     size_t bytesRead;
     while ((bytesRead = fread(&dataPacket[2], 1, DATA_PACKET_SIZE - 2, file)) > 0) {
+        printf("Data packet sent\n");
         dataPacket[0] = DATA_CONTROL;
-        dataPacket[1] = bytesRead;  // Length of data in this packet
+        dataPacket[1] = bytesRead;
         if (llwrite(dataPacket, bytesRead + 2) == -1) {
             perror("Error sending data packet");
             fclose(file);
@@ -80,6 +83,7 @@ void sendFile(const char *filename) {
 
 
     // Send END packet
+    printf("END packet sent\n");
     unsigned char endPacket[DATA_PACKET_SIZE];
     endPacket[0] = END_CONTROL;
     memcpy(&endPacket[1], &fileSize, sizeof(long));
@@ -91,6 +95,7 @@ void sendFile(const char *filename) {
 
 
     fclose(file);
+    printf("---------------------------------------------\n");
     printf("File transfer complete.\n");
 }
 
@@ -118,13 +123,11 @@ void receiveFile(const char *filename) {
     
     printf("File transfer started.\n");
 
-    // Receive data packets
+    // Receive data packets until END packet
     while ((packetType = llread(packet)) != END_CONTROL) {
         if (packetType == DATA_CONTROL) {
             int dataSize = packet[1];
             fwrite(&packet[2], 1, dataSize, file);
-        } else if (packetType == -2){
-            continue;
         } else {    
             perror("Unexpected packet type");
             fclose(file);
@@ -132,18 +135,18 @@ void receiveFile(const char *filename) {
         }
     }
 
+    // Wait for END packet
     if (packetType == END_CONTROL) {
         long endFileSize;
         memcpy(&endFileSize, &packet[1], sizeof(long));
-        // Optionally compare endFileSize with received bytes for integrity check
+
     } else {
         perror("Expected END packet, received something else");
         fclose(file);
         exit(1);
     }
 
-
-
     fclose(file);
+    printf("---------------------------------------------\n");
     printf("File received successfully.\n");
 }
