@@ -25,7 +25,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     // Open the link layer
     if (llopen(ll) == -1) {
-        printf("llopen error\n");
+        perror("llopen error\n");
         exit(1);
     }
 
@@ -38,7 +38,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
     // Close the link layer
     if (llclose(1) == -1) {
-        printf("llclose error\n");
+        perror("llclose error\n");
         exit(1);
     }
 }
