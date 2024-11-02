@@ -13,7 +13,6 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define _POSIX_SOURCE 1 // POSIX compliant source
 #define FALSE 0
 #define TRUE 1
 #define FLAG 0x7e
@@ -45,8 +44,8 @@ typedef enum {
 } State;
 
 
-volatile int alarmEnabled = FALSE;
-volatile int alarmCount = 0;
+int alarmEnabled = FALSE;
+int alarmCount = 0;
 int timeout = 0;
 int retransmissions = 0;
 int info = 0;
@@ -71,7 +70,7 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
     } else {
         unsigned char control_field;
         unsigned char buf_R[BUF_SIZE + 1] = {0};
-        while(*state != STOP_STATE) {
+        while(*state != STOP_STATE && alarmEnabled == FALSE) {
             int bytes_R = readByteSerialPort(buf_R);
             if(bytes_R > 0) {
                 printf("0x%02X\n", buf_R[0]);
@@ -210,7 +209,7 @@ int llopen(LinkLayer connectionParameters)
 int llwrite(const unsigned char *buf, int bufSize)
 {
     unsigned char* buf_W = (unsigned char*) malloc(HT_SIZE + 2 * bufSize);
-	//Header
+
     buf_W[0] = FLAG;
     buf_W[1] = A;
     
@@ -256,17 +255,18 @@ int llwrite(const unsigned char *buf, int bufSize)
 	(void) signal(SIGALRM, alarmHandler);
 	
 	while(retransmissions > 0){
+        
         State state = START;
 		bytes_W = writeBytesSerialPort(buf_W, data);
         i_frames++;
-    
-		//Wait until all bytes have been wrtien
-		sleep(1);
+        printf("Packet sent\n");
+        printf("Retransmissions availible: %d\n", retransmissions);
 
-		alarm(timeout);
-		alarmEnabled = FALSE;	
+        alarmEnabled = FALSE;
+		alarm(timeout);	
 
         printf("---------------------------------------------\n");
+
         control_field = StateMachine(&state, 1, -1);
 		if(control_field == C_RR0 || control_field == C_RR1) {
 			check = TRUE;
@@ -280,6 +280,12 @@ int llwrite(const unsigned char *buf, int bufSize)
 	}
 	
 	free(buf_W);
+
+    if(retransmissions == 0) {
+        printf("Maximum retransmissions sent. Aborting\n");
+        printf("---------------------------------------------\n");
+        check = FALSE;
+    }
 	
 	if(check) {
 		return bytes_W;
@@ -300,7 +306,7 @@ int llread(unsigned char *packet)
     unsigned char last_control_field = 0x7e;
     int i = 0;
     printf("---------------------------------------------\n");
-    while (state != STOP_STATE && alarmEnabled == FALSE) {
+    while (state != STOP_STATE) {
         int bytes_R = readByteSerialPort(buf_R);
         if(bytes_R > 0) {
             //printf("0x%02X\n", buf_R[0]);
@@ -429,9 +435,10 @@ int llclose(int showStatistics)
 
 	(void) signal(SIGALRM, alarmHandler);
 
-	while(retransmissions != 0 && state != STOP_STATE) {
+	while(retransmissions > 0) {
 		unsigned char buf_W[5] = {FLAG, A, C_DISC, A ^ C_DISC, FLAG};
 		writeBytesSerialPort(buf_W, 5);
+        printf("DISC frame sent\n");
 
 		alarm(timeout);
 		alarmEnabled = FALSE;

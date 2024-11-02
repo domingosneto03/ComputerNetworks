@@ -57,7 +57,6 @@ void sendFile(const char *filename) {
     fseek(file, 0, SEEK_SET);
 
     // Send START packet
-    printf("START packet sent\n");
     unsigned char startPacket[DATA_PACKET_SIZE];
     startPacket[0] = START_CONTROL;
     memcpy(&startPacket[1], &fileSize, sizeof(long));
@@ -71,7 +70,6 @@ void sendFile(const char *filename) {
     unsigned char dataPacket[DATA_PACKET_SIZE];
     size_t bytesRead;
     while ((bytesRead = fread(&dataPacket[2], 1, DATA_PACKET_SIZE - 2, file)) > 0) {
-        printf("Data packet sent\n");
         dataPacket[0] = DATA_CONTROL;
         dataPacket[1] = bytesRead;
         if (llwrite(dataPacket, bytesRead + 2) == -1) {
@@ -83,7 +81,6 @@ void sendFile(const char *filename) {
 
 
     // Send END packet
-    printf("END packet sent\n");
     unsigned char endPacket[DATA_PACKET_SIZE];
     endPacket[0] = END_CONTROL;
     memcpy(&endPacket[1], &fileSize, sizeof(long));
