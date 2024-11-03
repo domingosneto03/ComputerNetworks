@@ -27,9 +27,7 @@
 #define C_DISC 0x0B
 #define C_N0 0x00
 #define C_N1 0x80
-#define BUF_SIZE 256
 #define ESCAPE 0x7d
-#define HT_SIZE 6
 #define TX 1
 #define RX 0 
 
@@ -69,14 +67,14 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
         return -1;
     } else {
         unsigned char control_field;
-        unsigned char buf_R[BUF_SIZE + 1] = {0};
+        unsigned char byte;
         while(*state != STOP_STATE && alarmEnabled == FALSE) {
-            int bytes_R = readByteSerialPort(buf_R);
+            int bytes_R = readByteSerialPort(&byte);
             if(bytes_R > 0) {
-                printf("0x%02X\n", buf_R[0]);
+                printf("0x%02X\n", byte);
                 switch (*state) {
                     case START:
-                        if (buf_R[0] == FLAG) {
+                        if (byte == FLAG) {
                             *state = FLAG_RCV;
                         } else {
                             printf("Unexpected byte, staying in START\n");
@@ -85,10 +83,10 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
 
 
                     case FLAG_RCV:
-                        if (buf_R[0] == FLAG)  {
+                        if (byte == FLAG)  {
                             printf("FLAG received again, staying in FLAG_RCV\n");
                             continue;
-                        } else if (buf_R[0] == A) {
+                        } else if (byte == A) {
                             *state = A_RCV; 
                         } else {
                             *state = START;
@@ -97,20 +95,20 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
                         break;
 
                     case A_RCV:
-                        if (buf_R[0] == FLAG) {
+                        if (byte == FLAG) {
                             *state = FLAG_RCV;
                             printf("FLAG received, returning to FLAG_RCV\n");
-                        } else if (func == 0 && role == LlTx && buf_R[0] == C_UA) {
-                            control_field = buf_R[0];
+                        } else if (func == 0 && role == LlTx && byte == C_UA) {
+                            control_field = byte;
                             *state = C_RCV;
-                        } else if (func == 0 && role == LlRx && buf_R[0] == C_SET) {
-                            control_field = buf_R[0];
+                        } else if (func == 0 && role == LlRx && byte == C_SET) {
+                            control_field = byte;
                             *state = C_RCV;
-                        } else if (func == 1 && role == -1 && (buf_R[0] == C_RR0 || buf_R[0] == C_RR1 || buf_R[0] == C_REJ0 || buf_R[0] == C_REJ1 || buf_R[0] == C_DISC)) {
-                            control_field = buf_R[0];
+                        } else if (func == 1 && role == -1 && (byte == C_RR0 || byte == C_RR1 || byte == C_REJ0 || byte == C_REJ1 || byte == C_DISC)) {
+                            control_field = byte;
                             *state = C_RCV;
-                        } else if (func == 3 && role == -1 && buf_R[0] == C_DISC) {
-                            control_field = buf_R[0];
+                        } else if (func == 3 && role == -1 && byte == C_DISC) {
+                            control_field = byte;
                             *state = C_RCV;
                         } else {
                             *state = START;
@@ -119,10 +117,10 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
                         break;
 
                     case C_RCV:
-                        if (buf_R[0] == FLAG) {
+                        if (byte == FLAG) {
                             *state = FLAG_RCV;
                             printf("FLAG received, returning to FLAG_RCV\n");
-                        } else if (buf_R[0] == (control_field ^ A)) {
+                        } else if (byte == (control_field ^ A)) {
                             *state = BCC1_OK;
                         } else {
                             *state = START;
@@ -131,7 +129,7 @@ State StateMachine(State *state, int func, LinkLayerRole role) {
                         break;
 
                     case BCC1_OK:
-                        if (buf_R[0] == FLAG) {
+                        if (byte == FLAG) {
                             *state = STOP_STATE;
                         } else {
                             *state = START;
@@ -210,7 +208,8 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    unsigned char* buf_W = (unsigned char*) malloc(HT_SIZE + 2 * bufSize);
+    int size = bufSize + 6;
+    unsigned char* buf_W = malloc(2*size);
 
     buf_W[0] = FLAG;
     buf_W[1] = A;
@@ -305,18 +304,18 @@ int llwrite(const unsigned char *buf, int bufSize)
 int llread(unsigned char *packet)
 {
     State state = START;
-    unsigned char buf_R[BUF_SIZE + 1] = {0};
+    unsigned char byte;
     unsigned char control_field;
     unsigned char last_control_field = 0x7e;
     int i = 0;
     printf("---------------------------------------------\n");
     while (state != STOP_STATE) {
-        int bytes_R = readByteSerialPort(buf_R);
+        int bytes_R = readByteSerialPort(&byte);
         if(bytes_R > 0) {
-            //printf("0x%02X\n", buf_R[0]);
+            //printf("0x%02X\n", byte);
             switch (state) {
                 case START:
-                    if (buf_R[0] == FLAG) {
+                    if (byte == FLAG) {
                         state = FLAG_RCV;
                     } else {
                         printf("Unexpected byte, staying in START\n");
@@ -324,10 +323,10 @@ int llread(unsigned char *packet)
                     break;
 
                 case FLAG_RCV:
-                    if (buf_R[0] == FLAG)  {
+                    if (byte == FLAG)  {
                         printf("FLAG received again, staying in FLAG_RCV\n");
                         continue;
-                    } else if (buf_R[0] == A) {
+                    } else if (byte == A) {
                         state = A_RCV; 
                     } else {
                         state = START;
@@ -336,12 +335,12 @@ int llread(unsigned char *packet)
                     break;
 
                 case A_RCV:
-                    if (buf_R[0] == FLAG) {
+                    if (byte == FLAG) {
                         state = FLAG_RCV;
                         printf("FLAG received, returning to FLAG_RCV\n");
-                    } else if (buf_R[0] == C_N0 || buf_R[0] == C_N1 || buf_R[0] == C_DISC) {
+                    } else if (byte == C_N0 || byte == C_N1 || byte == C_DISC) {
                         state = C_RCV;
-                        control_field = buf_R[0];
+                        control_field = byte;
                         i_frames++;
                         if(control_field == last_control_field) {
                             dup_frames++;
@@ -354,10 +353,10 @@ int llread(unsigned char *packet)
                     break;
 
                 case C_RCV:
-                    if (buf_R[0] == FLAG) {
+                    if (byte == FLAG) {
                         state = FLAG_RCV;
                         printf("FLAG received, returning to FLAG_RCV\n");
-                    } else if (buf_R[0] == (A ^ control_field)) {
+                    } else if (byte == (A ^ control_field)) {
                         if (control_field ==  C_DISC) {
                             u_frames++;
                             unsigned char buf_W[5] = {FLAG, A_, C_DISC, A_ ^ C_DISC, FLAG};
@@ -372,13 +371,13 @@ int llread(unsigned char *packet)
                     break;
 
                 case BCC1_OK:
-                    if (buf_R[0] == ESCAPE) {
+                    if (byte == ESCAPE) {
                         //printf("ESC received, reading next byte\n");
-                        readByteSerialPort(buf_R);
-                        packet[i++] = buf_R[0] ^ 0x20;
+                        readByteSerialPort(&byte);
+                        packet[i++] = byte ^ 0x20;
                         //printf("After ESC: 0x%02X\n", packet[i - 1]);
 
-                    } else if (buf_R[0] == FLAG){
+                    } else if (byte == FLAG){
                         printf("Packet received\n");
                         //printf("Checking BCC2 and processing packet\n");
                         unsigned char bcc2 = packet[--i];
@@ -402,7 +401,6 @@ int llread(unsigned char *packet)
                             unsigned char buf_W[5] = {FLAG, A, rr, A ^ rr, FLAG};
                             writeBytesSerialPort(buf_W, 5);
                             sleep(1);
-
                             return packet[0];
                         } else {
                             printf("BCC2 check failed, sending REJ\n");
@@ -422,7 +420,7 @@ int llread(unsigned char *packet)
                             return packet[0];
                         }
                     } else {
-                        packet[i++] = buf_R[0];
+                        packet[i++] = byte;
                     }
                     break;    
                 default:
